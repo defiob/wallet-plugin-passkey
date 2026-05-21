@@ -1,0 +1,44 @@
+{
+  "name": "@defiob/wallet-plugin-passkey",
+  "description": "A WharfKit wallet plugin that signs Antelope transactions with a WebAuthn passkey (PUB_WA_).",
+  "version": "0.1.0",
+  "license": "BSD-3-Clause",
+  "homepage": "https://github.com/defiob/wallet-plugin-passkey",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/defiob/wallet-plugin-passkey.git"
+  },
+  "bugs": {
+    "url": "https://github.com/defiob/wallet-plugin-passkey/issues"
+  },
+  "type": "module",
+  "module": "lib/wallet-plugin-passkey.mjs",
+  "types": "lib/wallet-plugin-passkey.d.ts",
+  "files": ["lib/*", "src/*"],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./lib/wallet-plugin-passkey.d.ts",
+      "import": "./lib/wallet-plugin-passkey.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@wharfkit/session": "^1.6.0"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.6.0",
+    "@noble/hashes": "^2.2.0",
+    "@wharfkit/antelope": "^1.2.0",
+    "bs58": "^6.0.0"
+  },
+  "devDependencies": {
+    "@wharfkit/session": "^1.6.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.3"
+  }
+}
