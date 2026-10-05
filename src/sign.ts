@@ -38,9 +38,8 @@ export async function performSign(
 
   const credId = hexToBytes(params.credentialID)
 
-  let cred: PublicKeyCredential | null
-  try {
-    cred = (await navigator.credentials.get({
+  const getAssertion = async (allowCredentials: PublicKeyCredentialDescriptor[]) =>
+    (await navigator.credentials.get({
       publicKey: {
         /* The TS lib types narrow BufferSource to disallow
          * SharedArrayBuffer-backed Uint8Array; `.array` from
@@ -49,13 +48,30 @@ export async function performSign(
          * ArrayBuffer-backed Uint8Array in practice. */
         challenge: digest as BufferSource,
         rpId,
-        allowCredentials: [{ id: credId as BufferSource, type: 'public-key' }],
+        allowCredentials,
         userVerification: 'required',
         timeout: 60_000,
       },
     })) as PublicKeyCredential | null
+
+  let cred: PublicKeyCredential | null
+  try {
+    cred = await getAssertion([{ id: credId as BufferSource, type: 'public-key' }])
   } catch (err) {
-    throw normalizeAuthError(err)
+    /* Some Android credential providers (seen: Xiaomi's password manager
+     * on Chrome) fail targeted requests — Chrome reports "An unknown error
+     * occurred while talking to the credential manager" — while the
+     * discoverable form, the one login uses, works. Retry that way unless
+     * the user cancelled, then make sure they picked the logged-in passkey. */
+    if ((err as { name?: string })?.name === 'NotAllowedError') throw normalizeAuthError(err)
+    try {
+      cred = await getAssertion([])
+    } catch (retryErr) {
+      throw normalizeAuthError(retryErr)
+    }
+    if (cred && !bytesEqual(new Uint8Array(cred.rawId), credId)) {
+      throw new Error('A different passkey was chosen — pick the one you logged in with')
+    }
   }
   if (!cred) throw new Error('Passkey signing cancelled')
 
@@ -63,6 +79,14 @@ export async function performSign(
   const authData = new Uint8Array(response.authenticatorData)
   const clientDataJSON = new Uint8Array(response.clientDataJSON)
   const sigDer = new Uint8Array(response.signature)
+
+  /* The chain checks clientDataJSON.challenge against the signing digest.
+   * A buggy provider can echo a stale challenge (the same Xiaomi manager
+   * does on targeted requests), so fail here with a readable error instead
+   * of an opaque on-chain signature rejection. */
+  if (!challengeMatches(clientDataJSON, digest)) {
+    throw new Error('The passkey provider signed the wrong challenge — try again, or switch the passkey provider to Google Password Manager')
+  }
 
   /* The WebAuthn signature is computed over authData || sha256(clientDataJSON).
    * We need this exact same input to (a) recover the recid by matching the
@@ -115,11 +139,28 @@ export async function performSign(
   return { signatures: [signature] }
 }
 
+function challengeMatches(clientDataJSON: Uint8Array, digest: Uint8Array): boolean {
+  try {
+    const { challenge } = JSON.parse(new TextDecoder().decode(clientDataJSON)) as { challenge?: string }
+    return challenge === base64url(digest)
+  } catch {
+    return false
+  }
+}
+
+function base64url(bytes: Uint8Array): string {
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
 function normalizeAuthError(err: unknown): Error {
   const e = err as { name?: string; message?: string }
   if (e?.name === 'NotAllowedError') {
     return new Error('Passkey prompt cancelled or timed out')
   }
-  if (e?.message) return new Error(e.message)
+  /* Keep the DOMException name (NotReadableError, UnknownError, …) —
+   * the messages alone are too vague to tell failures apart. */
+  if (e?.message) return new Error(e.name ? `${e.name}: ${e.message}` : e.message)
   return new Error('Passkey signing failed')
 }
