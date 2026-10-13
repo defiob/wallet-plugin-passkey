@@ -55,12 +55,22 @@ new WalletPluginPasskey({
    * Default: 'https://state.eoseyes.com/v2/key/'
    */
   reverseLookupUrl: 'https://your.lookup.host/v2/key/',
+  /**
+   * Called before every passkey prompt with the decoded actions
+   * ({ contract, action, authorization, data }[]). Resolve false to cancel.
+   * Default: a WharfKit UI prompt listing the actions.
+   */
+  confirmSign: async (actions) => window.confirm(JSON.stringify(actions, null, 2)),
 })
 ```
 
 If you operate your own chain or want to point at a different aggregator,
 override `reverseLookupUrl`. Empty `accounts` is treated as "not bound on
 chain".
+
+The passkey prompt only ever shows a hash, so the plugin always asks for
+confirmation with the decoded actions first. Pass `confirmSign` to render
+that review in your own UI.
 
 ## Registering a passkey before first use
 

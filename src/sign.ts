@@ -1,4 +1,4 @@
-import { Bytes, KeyType, Signature, Transaction } from '@wharfkit/antelope'
+import { Bytes, KeyType, Serializer, Signature, Transaction } from '@wharfkit/antelope'
 import type {
   ResolvedSigningRequest,
   TransactContext,
@@ -11,9 +11,19 @@ import { parseDerSignature } from './der'
 import { compressedFromPubWA } from './pubwa'
 import { canonicaliseLowS, recoverP256Candidates, type RecoveryId } from './recover'
 
+export interface SignPreviewAction {
+  contract: string
+  action: string
+  authorization: string[]
+  data: unknown
+}
+
+export type ConfirmSign = (actions: SignPreviewAction[]) => Promise<boolean>
+
 export interface SignParams {
   credentialID: string
   publicKey: string
+  confirmSign?: ConfirmSign
 }
 
 export async function performSign(
@@ -35,6 +45,22 @@ export async function performSign(
    * transaction || 32 zero bytes for context-free data). */
   const tx = Transaction.from(resolved.transaction)
   const digest = tx.signingDigest(context.chain.id).array
+
+  /* The passkey prompt only ever sees a 32-byte digest, so this is the
+   * one place the user can read what they are about to sign. Clicking
+   * Sign also gives navigator.credentials.get() a fresh user gesture.
+   * Cancel rejects, which aborts the transact. Apps can pass their own
+   * confirmSign to render it; WebUI's prompt is the fallback. */
+  const actions = previewActions(resolved)
+  if (params.confirmSign) {
+    if (!(await params.confirmSign(actions))) throw new Error('Passkey signing cancelled')
+  } else if (context.ui) {
+    await context.ui.prompt({
+      title: 'Sign with passkey',
+      body: actions.map((a) => `${a.contract}::${a.action} ${JSON.stringify(a.data)}`).join('\n'),
+      elements: [{ type: 'accept', label: 'Sign' }],
+    })
+  }
 
   const credId = hexToBytes(params.credentialID)
 
@@ -163,4 +189,13 @@ function normalizeAuthError(err: unknown): Error {
    * the messages alone are too vague to tell failures apart. */
   if (e?.message) return new Error(e.name ? `${e.name}: ${e.message}` : e.message)
   return new Error('Passkey signing failed')
+}
+
+function previewActions(resolved: ResolvedSigningRequest): SignPreviewAction[] {
+  return resolved.resolvedTransaction.actions.map((a) => ({
+    contract: String(a.account),
+    action: String(a.name),
+    authorization: a.authorization.map((p) => String(p)),
+    data: Serializer.objectify(a.data),
+  }))
 }

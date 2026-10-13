@@ -11,7 +11,9 @@ import {
 } from '@wharfkit/session'
 
 import { performLogin } from './login'
-import { performSign } from './sign'
+import { type ConfirmSign, performSign } from './sign'
+
+export type { ConfirmSign, SignPreviewAction } from './sign'
 
 export interface WalletPluginPasskeyOptions {
   /**
@@ -23,6 +25,11 @@ export interface WalletPluginPasskeyOptions {
    * Default: `https://state.eoseyes.com/v2/key/`
    */
   reverseLookupUrl?: string
+  /**
+   * Shown before every passkey prompt with the decoded actions; resolve
+   * `false` to cancel. Without it the plugin falls back to WebUI's prompt.
+   */
+  confirmSign?: ConfirmSign
 }
 
 const DEFAULT_LOOKUP_URL = 'https://state.eoseyes.com/v2/key/'
@@ -58,10 +65,12 @@ export class WalletPluginPasskey extends AbstractWalletPlugin implements WalletP
   })
 
   private readonly reverseLookupUrl: string
+  private readonly confirmSign?: ConfirmSign
 
   constructor(options: WalletPluginPasskeyOptions = {}) {
     super()
     this.reverseLookupUrl = options.reverseLookupUrl ?? DEFAULT_LOOKUP_URL
+    this.confirmSign = options.confirmSign
   }
 
   get id(): string {
@@ -97,6 +106,7 @@ export class WalletPluginPasskey extends AbstractWalletPlugin implements WalletP
     return performSign(resolved, context, {
       credentialID: data.credentialID,
       publicKey: data.publicKey,
+      confirmSign: this.confirmSign,
     })
   }
 }
